@@ -24,6 +24,9 @@ set -euo pipefail
 #   docker run -v $HOME/.config/netcup-cli:/secrets --rm ghcr.io/kail0r/netcup-cli:latest /netcup-cli servers disks list $SERVER_ID
 : "${DISK_NAME:-}"
 
+# SSH Key (your ssh should be able to connect via that key)
+: "${IGNITION_SSH_KEY_PUB:-}"
+
 # Optional Server settings
 : "${SERVER_SETTINGS_HOSTNAME:-}"
 : "${SERVER_SETTINGS_NICKNAME:-}"
@@ -123,10 +126,11 @@ ask_permission() {
 	
 	Do you understand this (y/N)?"
 
-	read -n 1 YES
+	read -rn 1 YES
 
 	[[ "$YES" != "y" ]] && echo "Exiting..." && exit 1
 
+	echo
 }
 
 check_reqs() {
@@ -336,12 +340,6 @@ install_flux() {
 
 	echo -n "Waiting for k3s active... "
 	until $SSH_BIN -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" "systemctl list-units k3s.service --all --output=json" | jq -e '"active" == .[0].active' &>/dev/null; do
-		sleep 3
-	done
-	echo "🟢"
-
-	echo -n "Waiting for Traefik CRDs to finish installing... "
-	until $SSH_BIN -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" "sudo k3s kubectl get -o json --namespace kube-system pod --field-selector=status.phase=Succeeded" | jq -e '.items | length > 0' &>/dev/null; do
 		sleep 3
 	done
 	echo "🟢"
