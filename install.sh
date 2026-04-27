@@ -34,9 +34,9 @@ set -euo pipefail
 : "${SERVER_SETTINGS_CPU_TOPOLOGY:-}" # <Sockets> <Cores> Example: 1 2
 
 # config for your GitOps repository on Github
-: "${GITHUB_TOKEN:-}" # Github Personal Access Token with repo permissions (all readonly: Administration, Content)
-: "${GITHUB_OWNER:-}" # Example: https://github.com/<repository-owner>/<repository-name>
-: "${GITHUB_REPO:-}"  # look above
+: "${GITHUB_USER:-}"     # Github User
+: "${GITHUB_TOKEN:-}"    # Github Personal Access Token of $GITHUB_USER with repo permissions (all readonly: Administration, Content)
+: "${GITHUB_REPO_URL:-}" # look above
 : "${GITHUB_BRANCH:-}"
 : "${GITHUB_CLUSTER_PATH:-}" # usually something like "clusters/my-cluster"
 
@@ -353,6 +353,15 @@ install_flux() {
 			sudo chmod 600 /home/core/.kube/config
 		fi"
 
+	[[ -z "${GITHUB_USER:-}" ]] && {
+		read -rp "Enter your Github username: " GITHUB_USER
+
+		[[ -z "$GITHUB_USER" ]] && {
+			echo "No Github username provided, exiting..."
+			exit 1
+		}
+	}
+
 	[[ -z "${GITHUB_TOKEN:-}" ]] && {
 		read -rp "Paste your Github Personal Access Token for the repository in here: " GITHUB_TOKEN
 
@@ -362,26 +371,17 @@ install_flux() {
 		}
 	}
 
-	[[ -z "${GITHUB_OWNER:-}" ]] && {
-		read -r "Enter your repository owner here (Example: https://github.com/<repository-owner>/<repository-name>): " GITHUB_OWNER
+	[[ -z "${GITHUB_REPO_URL:-}" ]] && {
+		read -rp "Enter your repository url (Example: https://github.com/<repository-owner>/<repository-name>): " GITHUB_REPO
 
-		[[ -z "$GITHUB_OWNER" ]] && {
-			echo "No Github repository provided, exiting..."
-			exit 1
-		}
-	}
-
-	[[ -z "${GITHUB_REPO:-}" ]] && {
-		read -r "Enter your repository name here (Example: https://github.com/<repository-owner>/<repository-name>): " GITHUB_REPO
-
-		[[ -z "$GITHUB_REPO" ]] && {
+		[[ -z "$GITHUB_REPO_URL" ]] && {
 			echo "No Github repository provided, exiting..."
 			exit 1
 		}
 	}
 
 	[[ -z "${GITHUB_BRANCH:-}" ]] && {
-		read -r "Enter the branch flux should use here (Default: main): " GITHUB_BRANCH
+		read -rp "Enter the branch flux should use here (Default: main): " GITHUB_BRANCH
 
 		[[ -z "$GITHUB_BRANCH" ]] && {
 			GITHUB_BRANCH="main"
@@ -389,13 +389,8 @@ install_flux() {
 		}
 	}
 
-	if [[ -z "${GITHUB_BRANCH:-}" ]]; then
-		echo "GITHUB_BRANCH not set, defaulting to main"
-		GITHUB_BRANCH="main"
-	fi
-
 	[[ -z "${GITHUB_CLUSTER_PATH:-}" ]] && {
-		read -r "Enter your cluster path inside the repo here (Example: clusters/my-cluster): " GITHUB_CLUSTER_PATH
+		read -rp "Enter your cluster path inside the repo here (Example: clusters/my-cluster): " GITHUB_CLUSTER_PATH
 
 		[[ -z "$GITHUB_CLUSTER_PATH" ]] && {
 			echo "No cluster path provided, exiting..."
@@ -405,14 +400,33 @@ install_flux() {
 
 	echo "Install Flux..."
 
-	"$SSH_BIN" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" 'read -r GITHUB_TOKEN; export GITHUB_TOKEN; bash -lc "
-		flux bootstrap github \
-			--token-auth \
-			--owner='"${GITHUB_OWNER}"' \
-			--repository='"${GITHUB_REPO}"' \
-			--branch='"${GITHUB_BRANCH}"' \
-			--path='"${GITHUB_CLUSTER_PATH}"' \
-			--personal"' <<<"$GITHUB_TOKEN"
+	"$SSH_BIN" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" GITHUB_TOKEN=$GITHUB_TOKEN 'bash -ls' <<EOF
+		set -euo pipefail
+		flux install --components-extra=source-watcher
+
+		flux create secret git flux-system \
+			--url="${GITHUB_REPO_URL}" \
+			--username="${GITHUB_USER}" \
+			--password="\$GITHUB_TOKEN" \
+			--namespace=flux-system \
+			--export | sudo kubectl apply -f -
+
+		flux create source git repo \
+			--url="${GITHUB_REPO_URL}" \
+			--branch="${GITHUB_BRANCH}" \
+			--interval=1m \
+			--namespace=flux-system \
+  			--secret-ref=flux-system \
+			--export | sudo kubectl apply -f -
+
+		flux create kustomization repo \
+			--source=GitRepository/repo \
+			--path="${GITHUB_CLUSTER_PATH}" \
+			--interval=10m \
+			--prune=true \
+			--namespace=flux-system \
+			--export | sudo kubectl apply -f -
+EOF
 
 	echo "🟢"
 }
