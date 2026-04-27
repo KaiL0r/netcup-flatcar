@@ -372,7 +372,7 @@ install_flux() {
 	}
 
 	[[ -z "${GITHUB_REPO_URL:-}" ]] && {
-		read -rp "Enter your repository url (Example: https://github.com/<repository-owner>/<repository-name>): " GITHUB_REPO
+		read -rp "Enter your repository url (Example: https://github.com/<repository-owner>/<repository-name>): " GITHUB_REPO_URL
 
 		[[ -z "$GITHUB_REPO_URL" ]] && {
 			echo "No Github repository provided, exiting..."
@@ -400,7 +400,7 @@ install_flux() {
 
 	echo "Install Flux..."
 
-	"$SSH_BIN" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" GITHUB_TOKEN=$GITHUB_TOKEN 'bash -ls' <<EOF
+	"$SSH_BIN" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" GITHUB_TOKEN="$GITHUB_TOKEN" 'bash -ls' <<EOF
 		set -euo pipefail
 		flux install --components-extra=source-watcher
 
