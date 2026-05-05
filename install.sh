@@ -61,6 +61,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${IGNITION_FLUX_VERSION:="2.8.6"}"
 : "${IGNITION_K9S_VERSION:="0.50.18"}"
 : "${IGNITION_FLUX9S_VERSION:="0.8.3"}"
+: "${IGNITION_VELERO_VERSION:="1.18.0"}"
 
 # set default binaries
 : "${NETCUPCLI_BIN:=docker run -v $NETCUP_TOKEN_PATH:/secrets --rm ghcr.io/kail0r/netcup-cli:latest /netcup-cli}"
@@ -69,6 +70,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${SSH_BIN:="ssh"}"
 : "${SSH_KEYGEN_BIN:="ssh-keygen"}"
 : "${NC_BIN:="nc"}"
+
+: "${SSH_PORT:="22"}"
 
 execute_tasks() {
 	check_reqs
@@ -302,7 +305,7 @@ install_flatcar() {
 		}
 	}
 
-	export IGNITION_SSH_KEY_PUB IGNITION_K3S_VERSION IGNITION_FLUX_VERSION IGNITION_K9S_VERSION IGNITION_FLUX9S_VERSION
+	export IGNITION_SSH_KEY_PUB IGNITION_K3S_VERSION IGNITION_FLUX_VERSION IGNITION_K9S_VERSION IGNITION_FLUX9S_VERSION IGNITION_VELERO_VERSION SSH_PORT
 	ignition_config=$(envsubst <"$BUTANE_CONFIG" | $BUTANE_BIN)
 	echo "🟢"
 
@@ -333,19 +336,19 @@ install_flux() {
 	$SSH_KEYGEN_BIN -R "$ip_address" &>/dev/null
 
 	echo -n "Waiting for SSH Connection... "
-	until nc -z "$ip_address" 22 >/dev/null 2>&1; do
+	until nc -z "$ip_address" 32385 >/dev/null 2>&1; do
 		sleep 3
 	done
 	echo "🟢"
 
 	echo -n "Waiting for k3s active... "
-	until $SSH_BIN -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" "systemctl list-units k3s.service --all --output=json" | jq -e '"active" == .[0].active' &>/dev/null; do
+	until $SSH_BIN -p "${SSH_PORT}" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" "systemctl list-units k3s.service --all --output=json" | jq -e '"active" == .[0].active' &>/dev/null; do
 		sleep 3
 	done
 	echo "🟢"
 
 	# copy kubeconfig to user directory
-	"$SSH_BIN" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" "
+	$SSH_BIN -p "${SSH_PORT}" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" "
 		if [[ ! -f /home/core/.kube/config ]] ; then
 			mkdir -p /home/core/.kube
 			sudo cp /etc/rancher/k3s/k3s.yaml /home/core/.kube/config
@@ -400,7 +403,7 @@ install_flux() {
 
 	echo "Install Flux..."
 
-	"$SSH_BIN" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" GITHUB_TOKEN="$GITHUB_TOKEN" 'bash -ls' <<EOF
+	$SSH_BIN -p "${SSH_PORT}" -o LogLevel=ERROR -o StrictHostKeyChecking=no core@"$ip_address" GITHUB_TOKEN="$GITHUB_TOKEN" 'bash -ls' <<EOF
 		set -euo pipefail
 		flux install --components-extra=source-watcher
 
@@ -409,23 +412,23 @@ install_flux() {
 			--username="${GITHUB_USER}" \
 			--password="\$GITHUB_TOKEN" \
 			--namespace=flux-system \
-			--export | sudo kubectl apply -f -
+			--export | sudo k3s kubectl apply -f -
 
-		flux create source git repo \
+		flux create source git flux-system \
 			--url="${GITHUB_REPO_URL}" \
 			--branch="${GITHUB_BRANCH}" \
 			--interval=1m \
 			--namespace=flux-system \
   			--secret-ref=flux-system \
-			--export | sudo kubectl apply -f -
+			--export | sudo k3s kubectl apply -f -
 
-		flux create kustomization repo \
+		flux create kustomization flux-system \
 			--source=GitRepository/repo \
 			--path="${GITHUB_CLUSTER_PATH}" \
 			--interval=10m \
 			--prune=true \
 			--namespace=flux-system \
-			--export | sudo kubectl apply -f -
+			--export | sudo k3s kubectl apply -f -
 EOF
 
 	echo "🟢"
