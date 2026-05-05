@@ -74,22 +74,22 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${SSH_PORT:="22"}"
 
 execute_tasks() {
-	check_reqs
-	ask_permission
-	netcup_auth
+	# check_reqs
+	# ask_permission
+	# netcup_auth
 
-	[[ -z "${SERVER_ID:-}" ]] && select_server
-	[[ -z "${DISK_NAME:-}" ]] && select_disk
+	# [[ -z "${SERVER_ID:-}" ]] && select_server
+	# [[ -z "${DISK_NAME:-}" ]] && select_disk
 
-	stop_server
-	set_server_settings
-	format_disk
-	enable_rescue_mode
-	start_server
-	install_flatcar
-	stop_server
-	disable_rescue_mode
-	start_server
+	# stop_server
+	# set_server_settings
+	# format_disk
+	# enable_rescue_mode
+	# start_server
+	# install_flatcar
+	# stop_server
+	# disable_rescue_mode
+	# start_server
 	install_flux
 }
 
@@ -423,7 +423,7 @@ install_flux() {
 			--export | sudo k3s kubectl apply -f -
 
 		flux create kustomization flux-system \
-			--source=GitRepository/repo \
+			--source=GitRepository/flux-system \
 			--path="${GITHUB_CLUSTER_PATH}" \
 			--interval=10m \
 			--prune=true \
